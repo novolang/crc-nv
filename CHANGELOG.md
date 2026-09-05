@@ -4,6 +4,27 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**; see [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.1
+
+A patch: every check value is the value it was and no signature moved.
+The four published check values over `"123456789"`, the agreement with
+`std.codec`'s C implementations, and the streaming and range forms all
+still pass, which is what says so.
+
+- **The table builders and the step are written with the operators.**
+  Twenty-five `bits.*` calls become `&`, `^`, `<<` and `>>>`, and the
+  reflected table's shift-only branch is `remainder >>>= 1`.  The
+  reflected step is now two lines a reader can check against the
+  algorithm — `(state ^ byte) & 0xff` selects the table entry and
+  `self.table[index] ^ (state >>> 8)` shifts the rest of the state into
+  it.  Every shift count that is an expression is given a name, because
+  the shifts bind looser than `-` and the inline form reads wrong.
+  `std.bits` is no longer imported.
+- **The test module moved out of `src/`.**  A package's `src/` ships
+  whole and a consumer compiles every module in it, so the suite is
+  under `tests/` where it is not published.  Run it with
+  `novo test tests/crc_tests.nv`.
+
 ## 0.1.0
 
 First release: `crc16_ccitt_false`, `crc16_modbus`, `crc32`, `crc32c`,

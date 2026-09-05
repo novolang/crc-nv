@@ -40,7 +40,6 @@
 // arithmetic on `Int` and needs no heap, so a target without one can
 // carry the table as a constant and use the same step.
 
-use std.bits
 use std.bytes
 use std.list
 
@@ -66,7 +65,12 @@ pub struct Crc
 
 // The mask that keeps a value inside `width` bits.
 fn width_mask(width: Int) -> Int
-    bits.shr(0 - 1, 64 - width)
+    // Both intermediates are named because the shifts bind LOOSER than
+    // `-` (SPEC §6 levels 11 and 12), so the one-line form would read
+    // as though it shifted by 64 and then subtracted.
+    let all_ones = 0 - 1
+    let unused_bits = 64 - width
+    all_ones >>> unused_bits
 
 // The table for a reflected algorithm: the remainder of each byte fed
 // least significant bit first, with the polynomial already reversed.
@@ -75,26 +79,28 @@ fn reflected_table(poly_reversed: Int) -> [Int]
     for byte in 0 .. table_size()
         var remainder = byte
         for _bit in 0 .. 8
-            if bits.band(remainder, 1) == 1
-                remainder = bits.xor(bits.shr(remainder, 1), poly_reversed)
+            if (remainder & 1) == 1
+                remainder = (remainder >>> 1) ^ poly_reversed
             else
-                remainder = bits.shr(remainder, 1)
+                remainder >>>= 1
         out = list.push(out, remainder)
     out
 
 // The table for a non-reflected algorithm: the remainder of each byte
 // fed most significant bit first, aligned to the top of the width.
 fn msb_table(poly: Int, width: Int) -> [Int]
-    let top = bits.shl(1, width - 1)
+    let top_bit = width - 1
+    let byte_shift = width - 8
+    let top = 1 << top_bit
     let mask = width_mask(width)
     var out: [Int] = []
     for byte in 0 .. table_size()
-        var remainder = bits.shl(byte, width - 8)
+        var remainder = byte << byte_shift
         for _bit in 0 .. 8
-            if bits.band(remainder, top) != 0
-                remainder = bits.band(bits.xor(bits.shl(remainder, 1), poly), mask)
+            if (remainder & top) != 0
+                remainder = ((remainder << 1) ^ poly) & mask
             else
-                remainder = bits.band(bits.shl(remainder, 1), mask)
+                remainder = (remainder << 1) & mask
         out = list.push(out, remainder)
     out
 
@@ -138,12 +144,18 @@ impl Crc
     // uses directly.
     fn step(self, state: Int, byte: Int) -> Int
         if self.reflected
-            let index = bits.band(bits.xor(state, byte), 0xff)
-            bits.xor(self.table[index], bits.shr(state, 8))
+            let index = (state ^ byte) & 0xff
+            self.table[index] ^ (state >>> 8)
         else
-            let index = bits.band(bits.xor(bits.shr(state, self.width - 8), byte), 0xff)
-            bits.band(bits.xor(self.table[index], bits.shl(state, 8)),
-                      width_mask(self.width))
+            // `>>>` and not `>>`: the state is a bit pattern, and an
+            // arithmetic shift would smear a sign it does not have.
+            // The count is named because the shifts bind looser than
+            // `-`, so `state >>> self.width - 8` is right and reads
+            // wrong.
+            let byte_shift = self.width - 8
+            let top_byte = state >>> byte_shift
+            let index = (top_byte ^ byte) & 0xff
+            (self.table[index] ^ (state << 8)) & width_mask(self.width)
 
     // Every byte of `src` into a running state.  Reads the caller's
     // buffer and allocates nothing.
@@ -163,7 +175,7 @@ impl Crc
     // `update` because the final xor must be applied once, at the end,
     // and applying it twice would undo it.
     fn finish(self, state: Int) -> Int
-        bits.band(bits.xor(state, self.xor_out), width_mask(self.width))
+        (state ^ self.xor_out) & width_mask(self.width)
 
     // The check value of a whole buffer, in one call.
     fn checksum(self, src: Bytes) -> Int

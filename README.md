@@ -86,7 +86,13 @@ and trailer are outside the check needs no slice cut for them.
 
 `step` takes and returns an `Int` and touches no buffer, so a target
 with no heap can hold the table as a constant and use the same
-function.
+function. It is the whole algorithm, in the reflected case one line:
+
+```novo norun:fragment
+fn step(self, state: Int, byte: Int) -> Int
+    let index = (state ^ byte) & 0xff
+    self.table[index] ^ (state >>> 8)
+```
 
 ## What it does not do
 
