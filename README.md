@@ -104,7 +104,7 @@ purpose.
 ## Tests
 
 ```
-novo test src/crc_tests.nv
+novo test tests/crc_tests.nv
 ```
 
 The published check values for all four algorithms, the empty message,

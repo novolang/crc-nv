@@ -4,7 +4,10 @@ version     = "0.1.0"
 description = "Cyclic redundancy checks, table driven: CRC-16/CCITT-FALSE, CRC-16/MODBUS, CRC-32 and CRC-32C.  Each algorithm is fully specified and asserted against its published check value, and the running state is an Int, so a message can arrive in pieces."
 license     = "Apache-2.0"
 stability   = "experimental"
-keywords    = ["crc", "crc32", "crc16", "checksum", "modbus"]
+category    = "encoding"
+tags        = ["crc", "crc32", "crc16", "checksum", "modbus"]
+repository  = "https://github.com/novolang/crc-nv"
+maintainers = ["novo-lang"]
 main        = "src/main.nv"
 
 # The README is the package's one page, and its own first heading is the

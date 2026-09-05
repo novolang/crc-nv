@@ -2,7 +2,7 @@
 // publishes and what makes an implementation interoperable.
 //
 // Run from the package directory:
-//   novo test src/crc_tests.nv
+//   novo test tests/crc_tests.nv
 //
 // A CRC's "check value" is its result over the nine ASCII bytes
 // "123456789".  Every catalogue entry names one, so asserting it is
