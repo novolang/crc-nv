@@ -1,0 +1,110 @@
+// crc_tests.nv — the check values, which are what a CRC catalogue
+// publishes and what makes an implementation interoperable.
+//
+// Run from the package directory:
+//   novo test src/crc_tests.nv
+//
+// A CRC's "check value" is its result over the nine ASCII bytes
+// "123456789".  Every catalogue entry names one, so asserting it is
+// what proves this table computes the algorithm it claims and not a
+// neighbouring one.  Everything else here — the streaming split, the
+// empty message, the single-bit sensitivity — is about this
+// implementation rather than about the format.
+
+use std.bytes
+use std.test
+use crc
+
+// The nine bytes every CRC catalogue quotes its check value over.
+fn check_input() -> Bytes
+    bytes.from_str("123456789")
+
+@test
+fn test_the_published_check_values() [io]
+    test.assert_eq(crc.crc16_ccitt_false().checksum(check_input()), 0x29b1)
+    test.assert_eq(crc.crc16_modbus().checksum(check_input()), 0x4b37)
+    test.assert_eq(crc.crc32().checksum(check_input()), 0xcbf43926)
+    test.assert_eq(crc.crc32c().checksum(check_input()), 0xe3069283)
+
+@test
+fn test_the_empty_message() [io]
+    // With no bytes to fold in, the answer is the initial state through
+    // the final xor — 0xffff for both 16-bit variants, and 0 for the
+    // 32-bit ones whose init and xor_out are both all ones.
+    let empty = bytes.zeros(0)
+    test.assert_eq(crc.crc16_ccitt_false().checksum(empty), 0xffff)
+    test.assert_eq(crc.crc16_modbus().checksum(empty), 0xffff)
+    test.assert_eq(crc.crc32().checksum(empty), 0)
+    test.assert_eq(crc.crc32c().checksum(empty), 0)
+
+@test
+fn test_streaming_in_chunks_matches_one_call() [io]
+    // The reason `update` and `finish` are separate: a message that
+    // arrives in pieces must produce the byte-for-byte same check as
+    // one that arrived whole.
+    let algo = crc.crc32()
+    let whole = check_input()
+    var state = algo.start()
+    state = algo.update(state, bytes.slice(whole, 0, 4))
+    state = algo.update(state, bytes.slice(whole, 4, 9))
+    test.assert_eq(algo.finish(state), algo.checksum(whole))
+
+@test
+fn test_streaming_one_byte_at_a_time_matches_one_call() [io]
+    // The extreme of the same property, and the path the `step`
+    // function takes on a target reading from a UART.
+    let algo = crc.crc16_modbus()
+    let whole = check_input()
+    var state = algo.start()
+    for i in 0 .. bytes.len(whole)
+        state = algo.step(state, bytes.byte_at(whole, i) ?? 0)
+    test.assert_eq(algo.finish(state), algo.checksum(whole))
+
+@test
+fn test_update_range_leaves_out_what_it_is_told_to() [io]
+    // A frame whose first and last byte are not covered by the check:
+    // the range form must give the same answer as checksumming a slice,
+    // without cutting one.
+    let framed = bytes.from_str("!123456789?")
+    let algo = crc.crc32()
+    let ranged = algo.finish(algo.update_range(algo.start(), framed, 1, 9))
+    test.assert_eq(ranged, algo.checksum(check_input()))
+
+@test
+fn test_a_single_flipped_bit_changes_the_check() [io]
+    // The property a CRC exists for.  Flipping one bit of one byte must
+    // change the answer for every algorithm here.
+    let algo = crc.crc32()
+    let clean = check_input()
+    let dirty = bytes.set_u8(bytes.from_str("123456789"), 4, 0x36)
+    test.assert_ne(algo.checksum(clean), algo.checksum(dirty))
+
+@test
+fn test_verify_answers_the_receivers_question() [io]
+    let algo = crc.crc16_ccitt_false()
+    test.assert_eq(algo.verify(check_input(), 0x29b1), true)
+    test.assert_eq(algo.verify(check_input(), 0x29b2), false)
+
+@test
+fn test_the_reflected_and_non_reflected_paths_disagree() [io]
+    // Both 16-bit algorithms are 16 bits wide and start from 0xffff;
+    // what separates them is the polynomial and which end of a byte
+    // enters first.  If they ever agreed on this input, one of the two
+    // tables would be wrong.
+    test.assert_ne(crc.crc16_ccitt_false().checksum(check_input()),
+                   crc.crc16_modbus().checksum(check_input()))
+
+@test
+fn test_every_result_stays_inside_its_width() [io]
+    // A 16-bit CRC that answered 17 bits would be silently
+    // incompatible with every reader of the wire.
+    let payload = bytes.from_str("a longer message, so the state wraps around several times")
+    test.assert_true(crc.crc16_ccitt_false().checksum(payload) <= 0xffff, "ccitt left 16 bits")
+    test.assert_true(crc.crc16_modbus().checksum(payload) <= 0xffff, "modbus left 16 bits")
+    test.assert_true(crc.crc32().checksum(payload) <= 0xffffffff, "crc32 left 32 bits")
+    test.assert_true(crc.crc32c().checksum(payload) <= 0xffffffff, "crc32c left 32 bits")
+
+@test
+fn test_the_start_state_is_the_algorithms_own() [io]
+    test.assert_eq(crc.crc32().start(), 0xffffffff)
+    test.assert_eq(crc.crc16_ccitt_false().start(), 0xffff)

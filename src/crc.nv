@@ -1,0 +1,175 @@
+// CRC — cyclic redundancy checks, table driven, four algorithms.
+//
+// What it is.  A CRC is the remainder of the message, read as one very
+// long binary polynomial, divided by a fixed generator polynomial.  It
+// costs a table lookup and an xor per byte and catches every burst of
+// errors shorter than its width, which is why every lossy link — a
+// UART, a radio, a disk sector — carries one.
+//
+// What it does.  Four named algorithms, each fully specified so that a
+// value computed here is the value every other implementation computes:
+//
+//   CRC-16/CCITT-FALSE   poly 0x1021, init 0xffff, no reflection
+//   CRC-16/MODBUS        poly 0x8005 reflected, init 0xffff
+//   CRC-32               poly 0x04c11db7 reflected, the one in zlib,
+//                        PNG, ZIP and Ethernet
+//   CRC-32C              poly 0x1edc6f41 reflected, the Castagnoli
+//                        polynomial used by iSCSI, ext4 and SCTP
+//
+// "CCITT-FALSE" is the name the catalogue of CRC algorithms gives the
+// variant that is widely called "CRC-16-CCITT" and is not the one CCITT
+// specified.  It is used rather than corrected here because it is the
+// name a reader will be holding when they come looking.
+//
+// How to use it.  Build the algorithm once — it computes a 256-entry
+// table — and keep it; then either take a checksum in one call or feed
+// the running state one chunk at a time.
+//
+//     let algo = crc.crc32()
+//     let sum  = algo.checksum(payload)
+//
+//     var state = algo.start()
+//     state = algo.update(state, first_chunk)
+//     state = algo.update(state, second_chunk)
+//     let sum = algo.finish(state)
+//
+// What it costs.  One table lookup, one xor and one shift per byte, and
+// no allocation at all while checksumming — the state is an `Int`.  The
+// table is 256 entries built once per `Crc` value; building one per
+// message would cost more than the message.  The step function is
+// arithmetic on `Int` and needs no heap, so a target without one can
+// carry the table as a constant and use the same step.
+
+use std.bits
+use std.bytes
+use std.list
+
+// How many entries a byte-wise CRC table has: one per possible input
+// byte.
+fn table_size() -> Int
+    256
+
+// A fully specified CRC algorithm: the generator's table, the state to
+// start from, the value to xor into the result, and the width in bits.
+//
+// `reflected` says which end of each byte enters the division first.  A
+// reflected algorithm feeds the least significant bit first and shifts
+// its state right; a non-reflected one feeds the most significant bit
+// first and shifts left.  The two produce different numbers from the
+// same polynomial, which is why every CRC has to name both.
+pub struct Crc
+    table: [Int]
+    initial: Int
+    xor_out: Int
+    width: Int
+    reflected: Bool
+
+// The mask that keeps a value inside `width` bits.
+fn width_mask(width: Int) -> Int
+    bits.shr(0 - 1, 64 - width)
+
+// The table for a reflected algorithm: the remainder of each byte fed
+// least significant bit first, with the polynomial already reversed.
+fn reflected_table(poly_reversed: Int) -> [Int]
+    var out: [Int] = []
+    for byte in 0 .. table_size()
+        var remainder = byte
+        for _bit in 0 .. 8
+            if bits.band(remainder, 1) == 1
+                remainder = bits.xor(bits.shr(remainder, 1), poly_reversed)
+            else
+                remainder = bits.shr(remainder, 1)
+        out = list.push(out, remainder)
+    out
+
+// The table for a non-reflected algorithm: the remainder of each byte
+// fed most significant bit first, aligned to the top of the width.
+fn msb_table(poly: Int, width: Int) -> [Int]
+    let top = bits.shl(1, width - 1)
+    let mask = width_mask(width)
+    var out: [Int] = []
+    for byte in 0 .. table_size()
+        var remainder = bits.shl(byte, width - 8)
+        for _bit in 0 .. 8
+            if bits.band(remainder, top) != 0
+                remainder = bits.band(bits.xor(bits.shl(remainder, 1), poly), mask)
+            else
+                remainder = bits.band(bits.shl(remainder, 1), mask)
+        out = list.push(out, remainder)
+    out
+
+// CRC-16/CCITT-FALSE — poly 0x1021, init 0xffff, no reflection, no
+// final xor.  The check value over "123456789" is 0x29b1.
+pub fn crc16_ccitt_false() -> Crc
+    Crc { table: msb_table(0x1021, 16), initial: 0xffff, xor_out: 0,
+          width: 16, reflected: false }
+
+// CRC-16/MODBUS — poly 0x8005 reflected, init 0xffff, no final xor.
+// The frame check of the Modbus RTU serial protocol.  The check value
+// over "123456789" is 0x4b37.
+pub fn crc16_modbus() -> Crc
+    Crc { table: reflected_table(0xa001), initial: 0xffff, xor_out: 0,
+          width: 16, reflected: true }
+
+// CRC-32 — the IEEE 802.3 polynomial, reflected, init and final xor all
+// ones.  The one in zlib, gzip, PNG and ZIP.  The check value over
+// "123456789" is 0xcbf43926.
+pub fn crc32() -> Crc
+    Crc { table: reflected_table(0xedb88320), initial: 0xffffffff,
+          xor_out: 0xffffffff, width: 32, reflected: true }
+
+// CRC-32C — the Castagnoli polynomial, reflected, init and final xor
+// all ones.  Used by iSCSI, SCTP, ext4 and Btrfs, and the one modern
+// processors have an instruction for.  The check value over "123456789"
+// is 0xe3069283.
+pub fn crc32c() -> Crc
+    Crc { table: reflected_table(0x82f63b78), initial: 0xffffffff,
+          xor_out: 0xffffffff, width: 32, reflected: true }
+
+impl Crc
+    // The state a fresh message starts from.
+    fn start(self) -> Int
+        self.initial
+
+    // One byte into a running state.  This is the whole algorithm: the
+    // low or high byte of the state selects a table entry, and the rest
+    // of the state shifts into it.  It takes and returns an `Int` and
+    // touches no buffer, so it is the function a target without a heap
+    // uses directly.
+    fn step(self, state: Int, byte: Int) -> Int
+        if self.reflected
+            let index = bits.band(bits.xor(state, byte), 0xff)
+            bits.xor(self.table[index], bits.shr(state, 8))
+        else
+            let index = bits.band(bits.xor(bits.shr(state, self.width - 8), byte), 0xff)
+            bits.band(bits.xor(self.table[index], bits.shl(state, 8)),
+                      width_mask(self.width))
+
+    // Every byte of `src` into a running state.  Reads the caller's
+    // buffer and allocates nothing.
+    fn update(self, state: Int, src: Bytes) -> Int
+        self.update_range(state, src, 0, bytes.len(src))
+
+    // `count` bytes of `src` from `off` into a running state — the form
+    // for a frame whose header and trailer are not covered by the
+    // check, so that no slice has to be cut to leave them out.
+    fn update_range(self, state: Int, src: Bytes, off: Int, count: Int) -> Int
+        var running = state
+        for i in off .. off + count
+            running = self.step(running, bytes.byte_at(src, i) ?? 0)
+        running
+
+    // The check value a running state has reached.  Separate from
+    // `update` because the final xor must be applied once, at the end,
+    // and applying it twice would undo it.
+    fn finish(self, state: Int) -> Int
+        bits.band(bits.xor(state, self.xor_out), width_mask(self.width))
+
+    // The check value of a whole buffer, in one call.
+    fn checksum(self, src: Bytes) -> Int
+        self.finish(self.update(self.start(), src))
+
+    // Whether `src` carries the check value `expected` — the question a
+    // receiver actually asks, worded so it reads as one.
+    fn verify(self, src: Bytes, expected: Int) -> Bool
+        self.checksum(src) == expected
