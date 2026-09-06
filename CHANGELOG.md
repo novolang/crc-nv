@@ -4,6 +4,28 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**; see [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.3
+
+Documentation: the reference is generated from the code, and the
+examples in it are doctests.  No code changed — every check value is
+what 0.1.2 computed.
+
+- **Every `pub` item is documented under Go's rule**, the comment block
+  directly above the declaration, its first sentence the summary a
+  reader meets before opening anything.  The methods of `impl Crc` carry
+  their own.  `novo doc` turns that into
+  [the package's page](https://novo-lang.org/packages/crc-nv).
+- **Eight worked examples, and they run.**  Each constructor computes
+  its own published check value over `123456789`, and the streaming
+  form is shown reaching the same answer as the one-call form.  A
+  fenced `novo` block in a documentation comment is compiled by
+  `novo doc` and run by `novo test src/crc.nv`, so a check value that
+  stopped being true is a failing test.
+- **The README's algorithm table is gone.**  The parameters and the
+  check values are on the generated page, where they are read out of
+  the code that computes them; the README keeps what a generator cannot
+  say — which format uses which, and why the misleading name is kept.
+
 ## 0.1.2
 
 Developed in its own repository from this version.  `novolang/crc-nv` is

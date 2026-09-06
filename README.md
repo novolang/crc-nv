@@ -14,6 +14,7 @@ one.
 
 ```novo
 use crc
+use std.bytes
 
 fn main() [io]
     let algo = crc.crc32()
@@ -24,34 +25,31 @@ fn main() [io]
 novo pkg add crc-nv
 ```
 
-## The four algorithms
+## Which of the four
 
-| Constructor | Polynomial | Init | Reflected | Final xor | Check |
-|---|---|---|---|---|---|
-| `crc.crc16_ccitt_false()` | `0x1021` | `0xffff` | no | — | `0x29b1` |
-| `crc.crc16_modbus()` | `0x8005` | `0xffff` | yes | — | `0x4b37` |
-| `crc.crc32()` | `0x04c11db7` | `0xffffffff` | yes | `0xffffffff` | `0xcbf43926` |
-| `crc.crc32c()` | `0x1edc6f41` | `0xffffffff` | yes | `0xffffffff` | `0xe3069283` |
-
-The **check** column is the algorithm's result over the nine ASCII
-bytes `123456789`. Every CRC catalogue publishes one, and it is the
-number to compare against when a value here disagrees with a value from
-somewhere else — a mismatch is almost always the wrong variant rather
-than a wrong implementation.
-
-`CRC-32` is the one in zlib, gzip, PNG, ZIP and Ethernet. `CRC-32C`
-uses the Castagnoli polynomial and is what iSCSI, SCTP, ext4 and Btrfs
-carry. `CRC-16/MODBUS` is the frame check of Modbus RTU.
+`CRC-32` is the one in zlib, gzip, PNG, ZIP and Ethernet, and the one
+to reach for when a format says only "CRC-32". `CRC-32C` uses the
+Castagnoli polynomial and is what iSCSI, SCTP, ext4 and Btrfs carry.
+`CRC-16/MODBUS` is the frame check of Modbus RTU.
 `CRC-16/CCITT-FALSE` is the name the catalogue gives the variant widely
 called "CRC-16-CCITT" and which is not the one CCITT specified; the
 misleading name is kept because it is the one a reader arrives holding.
+
+Each of the four is fully specified — polynomial, initial state,
+reflection, final xor — and each publishes a **check value**: its
+result over the nine ASCII bytes `123456789`. That number is what to
+compare against when a value here disagrees with a value from somewhere
+else, because a mismatch is almost always the wrong variant rather than
+a wrong implementation. Each constructor's documentation names its own,
+and an example beside it computes it.
 
 ## What it gives you
 
 The API is on [the package's page](https://novo-lang.org/packages/crc-nv),
 generated from these sources: every `pub` declaration with its signature,
-its effect row and the comment block written above it. A table of names
-here would be a second original, and the second original is the one that
+its effect row and the comment block written above it — the four
+algorithms' parameters and check values included. A table of names here
+would be a second original, and the second original is the one that
 goes stale.
 
 ## Streaming

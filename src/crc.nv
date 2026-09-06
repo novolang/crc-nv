@@ -22,16 +22,11 @@
 // name a reader will be holding when they come looking.
 //
 // How to use it.  Build the algorithm once — it computes a 256-entry
-// table — and keep it; then either take a checksum in one call or feed
-// the running state one chunk at a time.
-//
-//     let algo = crc.crc32()
-//     let sum  = algo.checksum(payload)
-//
-//     var state = algo.start()
-//     state = algo.update(state, first_chunk)
-//     state = algo.update(state, second_chunk)
-//     let sum = algo.finish(state)
+// table — and keep it; then either take a checksum in one call
+// (`checksum`, `verify`) or feed the running state one chunk at a time
+// (`start`, `update`, `finish`).  Each of those carries a worked
+// example below, and each constructor carries its published check
+// value.
 //
 // What it costs.  One table lookup, one xor and one shift per byte, and
 // no allocation at all while checksumming — the state is an `Int`.  The
@@ -50,6 +45,11 @@ fn table_size() -> Int
 
 // A fully specified CRC algorithm: the generator's table, the state to
 // start from, the value to xor into the result, and the width in bits.
+//
+// Build one with a constructor — `crc32()` and the three others — and
+// hold on to it: the table is computed once per value, and building one
+// per message would cost more than the message.  A `Crc` carries no
+// running state, so one value serves every message and every thread.
 //
 // `reflected` says which end of each byte enters the division first.  A
 // reflected algorithm feeds the least significant bit first and shifts
@@ -104,44 +104,114 @@ fn msb_table(poly: Int, width: Int) -> [Int]
         out = list.push(out, remainder)
     out
 
-// CRC-16/CCITT-FALSE — poly 0x1021, init 0xffff, no reflection, no
-// final xor.  The check value over "123456789" is 0x29b1.
+// Build CRC-16/CCITT-FALSE — poly 0x1021, init 0xffff, no reflection,
+// no final xor.
+//
+// The 16-bit variant most protocols mean when they say "CRC-16-CCITT",
+// which is not the algorithm CCITT specified; the catalogue's name for
+// it is kept here because it is the name a reader arrives holding.  Its
+// published check value — the result over the nine bytes `123456789`,
+// which every catalogue quotes — is 0x29b1.  A value that disagrees
+// with another implementation's is almost always the wrong variant
+// rather than a wrong implementation, and this is the number that says
+// which.
+//
+// ```novo
+// use std.bytes
+//
+// println("${crc.crc16_ccitt_false().checksum(bytes.from_str("123456789"))}")
+// // 10673, which is 0x29b1 — the published check value
+// ```
 pub fn crc16_ccitt_false() -> Crc
     Crc { table: msb_table(0x1021, 16), initial: 0xffff, xor_out: 0,
           width: 16, reflected: false }
 
-// CRC-16/MODBUS — poly 0x8005 reflected, init 0xffff, no final xor.
-// The frame check of the Modbus RTU serial protocol.  The check value
-// over "123456789" is 0x4b37.
+// Build CRC-16/MODBUS — poly 0x8005 reflected, init 0xffff, no final
+// xor.
+//
+// The frame check of the Modbus RTU serial protocol.  Published check
+// value over `123456789`: 0x4b37.  Note that Modbus sends the two bytes
+// low byte first, which is the framing's business and not this
+// function's — what you get here is the number.
+//
+// ```novo
+// use std.bytes
+//
+// println("${crc.crc16_modbus().checksum(bytes.from_str("123456789"))}")
+// // 19255, which is 0x4b37 — the published check value
+// ```
 pub fn crc16_modbus() -> Crc
     Crc { table: reflected_table(0xa001), initial: 0xffff, xor_out: 0,
           width: 16, reflected: true }
 
-// CRC-32 — the IEEE 802.3 polynomial, reflected, init and final xor all
-// ones.  The one in zlib, gzip, PNG and ZIP.  The check value over
-// "123456789" is 0xcbf43926.
+// Build CRC-32 — the IEEE 802.3 polynomial, reflected, init and final
+// xor all ones.
+//
+// The one in zlib, gzip, PNG, ZIP and Ethernet, and the algorithm to
+// reach for when a format says only "CRC-32".  Published check value
+// over `123456789`: 0xcbf43926.  Over an empty message it is 0, because
+// the initial state and the final xor are both all ones and cancel.
+//
+// ```novo
+// use std.bytes
+//
+// let algo = crc.crc32()
+// println("${algo.checksum(bytes.from_str("123456789"))}")
+// // 3421780262, which is 0xcbf43926 — the published check value
+// println("${algo.checksum(bytes.zeros(0))}")   // 0, for an empty message
+// ```
 pub fn crc32() -> Crc
     Crc { table: reflected_table(0xedb88320), initial: 0xffffffff,
           xor_out: 0xffffffff, width: 32, reflected: true }
 
-// CRC-32C — the Castagnoli polynomial, reflected, init and final xor
-// all ones.  Used by iSCSI, SCTP, ext4 and Btrfs, and the one modern
-// processors have an instruction for.  The check value over "123456789"
-// is 0xe3069283.
+// Build CRC-32C — the Castagnoli polynomial, reflected, init and final
+// xor all ones.
+//
+// Used by iSCSI, SCTP, ext4 and Btrfs, and the one modern processors
+// have an instruction for — an instruction this package does not reach
+// for, so the cost here is the table on every target.  Published check
+// value over `123456789`: 0xe3069283.
+//
+// ```novo
+// use std.bytes
+//
+// println("${crc.crc32c().checksum(bytes.from_str("123456789"))}")
+// // 3808858755, which is 0xe3069283 — the published check value
+// ```
 pub fn crc32c() -> Crc
     Crc { table: reflected_table(0x82f63b78), initial: 0xffffffff,
           xor_out: 0xffffffff, width: 32, reflected: true }
 
 impl Crc
-    // The state a fresh message starts from.
+    // Answer the state a fresh message starts from.
+    //
+    // The first half of the streaming form; `update` folds bytes into
+    // what this returns and `finish` turns the result into a check
+    // value.  It is not itself a check value — the final xor has not
+    // been applied — so nothing should compare against it.
     fn start(self) -> Int
         self.initial
 
-    // One byte into a running state.  This is the whole algorithm: the
-    // low or high byte of the state selects a table entry, and the rest
-    // of the state shifts into it.  It takes and returns an `Int` and
-    // touches no buffer, so it is the function a target without a heap
-    // uses directly.
+    // Fold one byte into a running state, and answer the new state.
+    //
+    // This is the whole algorithm: the low or high byte of the state
+    // selects a table entry, and the rest of the state shifts into it.
+    // It takes and returns an `Int` and touches no buffer, so it is the
+    // function a target without a heap uses directly — and the one a
+    // receiver uses when the bytes come off a UART as they arrive.
+    //
+    // ```novo
+    // use std.bytes
+    //
+    // // A byte at a time reaches the same answer as one call, which is
+    // // the property the streaming form exists for.
+    // let algo = crc.crc32()
+    // let msg = bytes.from_str("123456789")
+    // var state = algo.start()
+    // for i in 0 .. bytes.len(msg)
+    //     state = algo.step(state, bytes.byte_at(msg, i) ?? 0)
+    // println("${algo.finish(state) == algo.checksum(msg)}")   // true
+    // ```
     fn step(self, state: Int, byte: Int) -> Int
         if self.reflected
             let index = (state ^ byte) & 0xff
@@ -157,31 +227,80 @@ impl Crc
             let index = (top_byte ^ byte) & 0xff
             (self.table[index] ^ (state << 8)) & width_mask(self.width)
 
-    // Every byte of `src` into a running state.  Reads the caller's
+    // Fold every byte of `src` into a running state.  Reads the caller's
     // buffer and allocates nothing.
+    //
+    // The streaming form: a message that arrives in pieces must produce
+    // the byte-for-byte same check as one that arrived whole, so the
+    // state is passed through rather than kept, and the final xor waits
+    // for `finish`.
+    //
+    // ```novo
+    // use std.bytes
+    //
+    // // A header and a body, checked as one message.
+    // let algo = crc.crc32()
+    // let msg = bytes.from_str("123456789")
+    // var state = algo.start()
+    // state = algo.update(state, bytes.slice(msg, 0, 4))
+    // state = algo.update(state, bytes.slice(msg, 4, 9))
+    // println("${algo.finish(state)}")   // 3421780262, the whole-message answer
+    // ```
     fn update(self, state: Int, src: Bytes) -> Int
         self.update_range(state, src, 0, bytes.len(src))
 
-    // `count` bytes of `src` from `off` into a running state — the form
-    // for a frame whose header and trailer are not covered by the
-    // check, so that no slice has to be cut to leave them out.
+    // Fold `count` bytes of `src` from `off` into a running state.
+    //
+    // The form for a frame whose header and trailer are not covered by
+    // the check, so that no slice has to be cut to leave them out.  The
+    // range is trusted: bytes outside the buffer read as 0 rather than
+    // panicking, because a frame length is input and input never
+    // decides whether a program lives.
     fn update_range(self, state: Int, src: Bytes, off: Int, count: Int) -> Int
         var running = state
         for i in off .. off + count
             running = self.step(running, bytes.byte_at(src, i) ?? 0)
         running
 
-    // The check value a running state has reached.  Separate from
-    // `update` because the final xor must be applied once, at the end,
-    // and applying it twice would undo it.
+    // Answer the check value a running state has reached.
+    //
+    // Separate from `update` because the final xor must be applied once,
+    // at the end: applying it twice would undo it, which is what a
+    // `finish` inside the loop would do.
     fn finish(self, state: Int) -> Int
         (state ^ self.xor_out) & width_mask(self.width)
 
-    // The check value of a whole buffer, in one call.
+    // Answer the check value of a whole buffer, in one call.
+    //
+    // `start`, `update` and `finish` in the order they go, for the
+    // caller that has all the bytes at once.  Allocates nothing.
+    //
+    // ```novo
+    // use std.bytes
+    //
+    // println("${crc.crc32().checksum(bytes.from_str("hello"))}")   // 907060870
+    //
+    // // A single flipped bit is a different number — which is the
+    // // whole reason to send one.
+    // println("${crc.crc32().checksum(bytes.from_str("hemlo"))}")   // 936561841
+    // ```
     fn checksum(self, src: Bytes) -> Int
         self.finish(self.update(self.start(), src))
 
-    // Whether `src` carries the check value `expected` — the question a
-    // receiver actually asks, worded so it reads as one.
+    // Answer whether `src` carries the check value `expected` — the
+    // question a receiver actually asks, worded so it reads as one.
+    //
+    // It is `checksum(src) == expected` and nothing more: there is no
+    // constant-time comparison here, because a CRC is an error check
+    // and not a signature.  It detects accidental corruption and does
+    // nothing at all against a change someone made on purpose.
+    //
+    // ```novo
+    // use std.bytes
+    //
+    // let algo = crc.crc32()
+    // println("${algo.verify(bytes.from_str("123456789"), 0xcbf43926)}")   // true
+    // println("${algo.verify(bytes.from_str("12345678x"), 0xcbf43926)}")   // false
+    // ```
     fn verify(self, src: Bytes, expected: Int) -> Bool
         self.checksum(src) == expected
