@@ -1,6 +1,6 @@
 [package]
 name        = "crc-nv"
-version     = "0.1.1"
+version     = "0.1.2"
 description = "Cyclic redundancy checks, table driven: CRC-16/CCITT-FALSE, CRC-16/MODBUS, CRC-32 and CRC-32C.  Each algorithm is fully specified and asserted against its published check value, and the running state is an Int, so a message can arrive in pieces."
 license     = "Apache-2.0"
 stability   = "experimental"
