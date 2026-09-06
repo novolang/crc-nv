@@ -48,15 +48,11 @@ misleading name is kept because it is the one a reader arrives holding.
 
 ## What it gives you
 
-| Method | |
-|---|---|
-| `algo.checksum(src: Bytes) -> Int` | the check value of a whole buffer, in one call |
-| `algo.verify(src: Bytes, expected: Int) -> Bool` | the receiver's question, worded as one |
-| `algo.start() -> Int` | the state a fresh message begins from |
-| `algo.update(state, src: Bytes) -> Int` | every byte of `src` into a running state |
-| `algo.update_range(state, src, off, count) -> Int` | `count` bytes from `off`, so a header need not be sliced off |
-| `algo.step(state, byte: Int) -> Int` | one byte — the whole algorithm, on `Int` alone |
-| `algo.finish(state) -> Int` | the check value a running state has reached |
+The API is on [the package's page](https://novo-lang.org/packages/crc-nv),
+generated from these sources: every `pub` declaration with its signature,
+its effect row and the comment block written above it. A table of names
+here would be a second original, and the second original is the one that
+goes stale.
 
 ## Streaming
 
