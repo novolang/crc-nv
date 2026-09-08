@@ -76,9 +76,9 @@ fn width_mask(width: Int) -> Int
 // least significant bit first, with the polynomial already reversed.
 fn reflected_table(poly_reversed: Int) -> [Int]
     var out: [Int] = []
-    for byte in 0 .. table_size()
+    for byte in 0..table_size()
         var remainder = byte
-        for _bit in 0 .. 8
+        for _bit in 0..8
             if (remainder & 1) == 1
                 remainder = (remainder >>> 1) ^ poly_reversed
             else
@@ -94,9 +94,9 @@ fn msb_table(poly: Int, width: Int) -> [Int]
     let top = 1 << top_bit
     let mask = width_mask(width)
     var out: [Int] = []
-    for byte in 0 .. table_size()
+    for byte in 0..table_size()
         var remainder = byte << byte_shift
-        for _bit in 0 .. 8
+        for _bit in 0..8
             if (remainder & top) != 0
                 remainder = ((remainder << 1) ^ poly) & mask
             else
@@ -258,7 +258,7 @@ impl Crc
     // decides whether a program lives.
     fn update_range(self, state: Int, src: Bytes, off: Int, count: Int) -> Int
         var running = state
-        for i in off .. off + count
+        for i in off..off + count
             running = self.step(running, bytes.byte_at(src, i) ?? 0)
         running
 
