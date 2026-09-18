@@ -1,15 +1,16 @@
-// crc_tests.nv — the check values, which are what a CRC catalogue
-// publishes and what makes an implementation interoperable.
+// crc_tests.nv — the tests of the four algorithms, over the check
+// values a CRC catalogue publishes.
 //
-// Run from the package directory:
+// Run it from the package directory.
+//
 //   novo test tests/crc_tests.nv
 //
-// A CRC's "check value" is its result over the nine ASCII bytes
-// "123456789".  Every catalogue entry names one, so asserting it is
-// what proves this table computes the algorithm it claims and not a
-// neighbouring one.  Everything else here — the streaming split, the
-// empty message, the single-bit sensitivity — is about this
-// implementation rather than about the format.
+// A check value is an algorithm's result over the nine ASCII bytes
+// "123456789".  Every catalogue entry names one.  Asserting it is what
+// says that a table computes the algorithm it claims and not a
+// neighbouring one.  The rest of the cases here are about this package
+// rather than about the format.  They are the streaming split, the
+// empty message and the single-bit sensitivity.
 
 use std.bytes
 use std.test
@@ -28,9 +29,10 @@ fn test_the_published_check_values() [io]
 
 @test
 fn test_the_empty_message() [io]
-    // With no bytes to fold in, the answer is the initial state through
-    // the final xor — 0xffff for both 16-bit variants, and 0 for the
-    // 32-bit ones whose init and xor_out are both all ones.
+    // With no bytes to fold in, the answer is the initial state
+    // through the final xor.  That is 0xffff for both 16-bit variants,
+    // and 0 for the 32-bit ones whose initial state and final xor are
+    // both all ones.
     let empty = bytes.zeros(0)
     test.assert_eq(crc.crc16_ccitt_false().checksum(empty), 0xffff)
     test.assert_eq(crc.crc16_modbus().checksum(empty), 0xffff)
@@ -39,9 +41,9 @@ fn test_the_empty_message() [io]
 
 @test
 fn test_streaming_in_chunks_matches_one_call() [io]
-    // The reason `update` and `finish` are separate: a message that
-    // arrives in pieces must produce the byte-for-byte same check as
-    // one that arrived whole.
+    // A message that arrives in pieces must produce the byte-for-byte
+    // same check as one that arrived whole.  That is why `update` and
+    // `finish` are separate calls.
     let algo = crc.crc32()
     let whole = check_input()
     var state = algo.start()
@@ -51,8 +53,8 @@ fn test_streaming_in_chunks_matches_one_call() [io]
 
 @test
 fn test_streaming_one_byte_at_a_time_matches_one_call() [io]
-    // The extreme of the same property, and the path the `step`
-    // function takes on a target reading from a UART.
+    // The same property at its extreme.  This is the path `step`
+    // takes on a target reading from a UART.
     let algo = crc.crc16_modbus()
     let whole = check_input()
     var state = algo.start()
@@ -62,9 +64,9 @@ fn test_streaming_one_byte_at_a_time_matches_one_call() [io]
 
 @test
 fn test_update_range_leaves_out_what_it_is_told_to() [io]
-    // A frame whose first and last byte are not covered by the check:
-    // the range form must give the same answer as checksumming a slice,
-    // without cutting one.
+    // A frame whose first and last byte are not covered by the check.
+    // The range form must answer what checksumming a slice answers,
+    // without a slice being cut.
     let framed = bytes.from_str("!123456789?")
     let algo = crc.crc32()
     let ranged = algo.finish(algo.update_range(algo.start(), framed, 1, 9))
@@ -72,8 +74,8 @@ fn test_update_range_leaves_out_what_it_is_told_to() [io]
 
 @test
 fn test_a_single_flipped_bit_changes_the_check() [io]
-    // The property a CRC exists for.  Flipping one bit of one byte must
-    // change the answer for every algorithm here.
+    // The property a CRC exists for.  Flipping one bit of one byte
+    // must change the answer for every algorithm here.
     let algo = crc.crc32()
     let clean = check_input()
     let dirty = bytes.set_u8(bytes.from_str("123456789"), 4, 0x36)
@@ -87,9 +89,9 @@ fn test_verify_answers_the_receivers_question() [io]
 
 @test
 fn test_the_reflected_and_non_reflected_paths_disagree() [io]
-    // Both 16-bit algorithms are 16 bits wide and start from 0xffff;
-    // what separates them is the polynomial and which end of a byte
-    // enters first.  If they ever agreed on this input, one of the two
+    // Both 16-bit algorithms are 16 bits wide and start from 0xffff.
+    // What separates them is the polynomial and which end of a byte
+    // enters first.  If they agreed on this input, one of the two
     // tables would be wrong.
     test.assert_ne(crc.crc16_ccitt_false().checksum(check_input()),
                    crc.crc16_modbus().checksum(check_input()))

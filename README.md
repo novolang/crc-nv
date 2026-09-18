@@ -1,110 +1,156 @@
-> Developed and published from this repository.  `crc-nv` began under
-> `orbit/crc-nv` in the [novo-lang](https://github.com/novolang) monorepo
-> and graduated out of it with its history; issues and pull requests
-> belong here.
-
 # crc-nv
 
-Cyclic redundancy checks, table driven. Four algorithms, each fully
-specified — polynomial, initial state, reflection, final xor — so a
-value computed here is the value every other implementation computes.
-A CRC costs a table lookup and an xor per byte and catches every burst
-of errors shorter than its width, which is why every lossy link carries
-one.
+A cyclic redundancy check (CRC) is the remainder left when a message,
+read as one long binary polynomial, is divided by a fixed generator
+polynomial. It costs one table lookup and one exclusive-or per byte,
+and it detects every burst of errors shorter than its own width. That
+is why a lossy link carries one: a UART, a radio, a disk sector. This
+package brings four named CRC algorithms to novo-lang, taken from the
+[catalogue of parametrised CRC
+algorithms](https://reveng.sourceforge.io/crc-catalogue/all.htm).
+
+## What a cyclic redundancy check is
+
+A CRC algorithm is named by four parameters. Two programs agree on a
+number only when all four agree.
+
+The **polynomial** is the divisor. It is written as the coefficients of
+a binary polynomial, one bit each, with the highest coefficient left
+out because it is always 1. The **initial state** is the value the
+remainder starts from, before the first byte of the message is folded
+in. **Reflection** says which end of each byte enters the division
+first. A reflected algorithm feeds the least significant bit first and
+shifts its state right. A non-reflected one feeds the most significant
+bit first and shifts left. The **final xor** is the value
+exclusive-ored into the remainder once the last byte is in.
+
+The **width** is how many bits the result has. It is 16 bits for the
+two 16-bit algorithms here and 32 bits for the other two. The width is
+also what bounds the check. A burst of errors shorter than the width is
+always detected.
+
+A catalogue entry also publishes a **check value**. That is the
+algorithm's result over the nine ASCII bytes `123456789`. The check
+value is what to compare against when a value computed here disagrees
+with a value from another program. A disagreement is almost always the
+wrong variant rather than a wrong implementation, and the check value
+says which variant each side is running.
+
+## Install
+
+```
+novo pkg add crc-nv
+```
+
+## Example
 
 ```novo
 use crc
 use std.bytes
 
 fn main() [io]
+    // Build the algorithm once. The constructor computes a 256-entry
+    // table.
     let algo = crc.crc32()
+    // The check value of CRC-32, over the nine bytes the catalogue
+    // quotes it for.
     println("${algo.checksum(bytes.from_str("123456789"))}")   // 3421780262
 ```
 
-```
-novo pkg add crc-nv
-```
+Build and test with `novo pkg build` and `novo test tests/crc_tests.nv`.
 
-## Which of the four
+## What the package contains
 
-`CRC-32` is the one in zlib, gzip, PNG, ZIP and Ethernet, and the one
-to reach for when a format says only "CRC-32". `CRC-32C` uses the
-Castagnoli polynomial and is what iSCSI, SCTP, ext4 and Btrfs carry.
-`CRC-16/MODBUS` is the frame check of Modbus RTU.
-`CRC-16/CCITT-FALSE` is the name the catalogue gives the variant widely
-called "CRC-16-CCITT" and which is not the one CCITT specified; the
-misleading name is kept because it is the one a reader arrives holding.
+| Module | Contents |
+| --- | --- |
+| `crc` | The `Crc` value, the four constructors that build one, and the calls a caller makes on it: `start`, `step`, `update`, `update_range`, `finish`, `checksum` and `verify`. |
 
-Each of the four is fully specified — polynomial, initial state,
-reflection, final xor — and each publishes a **check value**: its
-result over the nine ASCII bytes `123456789`. That number is what to
-compare against when a value here disagrees with a value from somewhere
-else, because a mismatch is almost always the wrong variant rather than
-a wrong implementation. Each constructor's documentation names its own,
-and an example beside it computes it.
+The API reference is on
+[the package's page](https://novo-lang.org/packages/crc-nv). `novo doc`
+generates it from these sources: every `pub` declaration with its
+signature, its effect row and the comment block written above it. Each
+constructor's comment names its algorithm's four parameters and its
+published check value, and an example beside it computes that value.
 
-## What it gives you
+## How to choose an entry point
 
-The API is on [the package's page](https://novo-lang.org/packages/crc-nv),
-generated from these sources: every `pub` declaration with its signature,
-its effect row and the comment block written above it — the four
-algorithms' parameters and check values included. A table of names here
-would be a second original, and the second original is the one that
-goes stale.
+The four algorithms, and the formats that name them:
 
-## Streaming
+| Constructor | Where the algorithm is used |
+| --- | --- |
+| `crc32` | zlib, gzip, PNG, ZIP and Ethernet. This is the one to reach for when a format says only "CRC-32". |
+| `crc32c` | iSCSI, SCTP, ext4 and Btrfs. It uses the Castagnoli polynomial, which RFC 3309 specifies for SCTP. |
+| `crc16_modbus` | The frame check of Modbus RTU, in the Modbus over Serial Line specification. |
+| `crc16_ccitt_false` | The 16-bit variant widely called "CRC-16-CCITT". It is not the algorithm CCITT specified. The catalogue's name for it is kept here, because it is the name a reader arrives holding. |
 
-A message that arrives in pieces must produce the same check as one
-that arrived whole, so `update` takes and returns the running state and
-`finish` applies the final xor exactly once:
+The calls, and who uses which:
 
-```novo
-use crc
+**`checksum` and `verify` take the whole buffer.** `checksum` answers
+the check value and `verify` answers whether the buffer carries a check
+value the caller already has. This is the pair for a program that holds
+all the bytes at once.
 
-fn frame_check(header: Bytes, body: Bytes) -> Int
-    let algo = crc.crc32()
-    var state = algo.start()
-    state = algo.update(state, header)
-    state = algo.update(state, body)
-    algo.finish(state)
-```
+**`start`, `update` and `finish` take the message in pieces.** `start`
+answers the state a message begins from, `update` folds a chunk into a
+state and answers the new one, and `finish` turns a state into a check
+value. This is the form for a message that arrives a chunk at a time.
 
-`step` is the same thing one byte at a time — the shape a receiver
-takes when the bytes come off a UART as they arrive.
+**`update_range` covers part of a buffer.** It folds `count` bytes from
+an offset, so a frame whose header and trailer are outside the check
+needs no slice cut for them.
 
-## What it costs
+**`step` takes one byte.** It takes an `Int` and answers an `Int`, and
+it reads no buffer at all. This is the call a receiver makes when the
+bytes come off a UART as they arrive, and the one a target with no heap
+allocator uses with the table held as a constant.
 
-**Build the algorithm once.** `crc.crc32()` computes a 256-entry table;
-building one per message would cost more than the message. Hold the
-`Crc` value and reuse it.
+## The rules a user needs
 
-Checksumming is one table lookup, one xor and one shift per byte, and
-allocates nothing — the running state is an `Int` and the buffer is
-read, never copied. `update_range` exists so that a frame whose header
-and trailer are outside the check needs no slice cut for them.
+1. **Build the algorithm once and keep the value.** A constructor
+   computes a 256-entry table. Building one per message costs more than
+   the message.
+2. **A `Crc` value holds no running state.** One value serves every
+   message and every thread. The running state is an `Int` the caller
+   passes through.
+3. **A running state is not a check value.** The final xor has not been
+   applied to what `start` and `update` answer, so nothing should
+   compare against one. `finish` applies the final xor, once.
+4. **`finish` is called once per message.** Applying the final xor
+   twice undoes it.
+5. **`update_range` trusts the range it is given.** A byte outside the
+   buffer reads as 0 rather than stopping the program, because a frame
+   length is input.
+6. **Modbus RTU sends the two check bytes low byte first.** That is the
+   framing's business rather than this package's. `crc16_modbus`
+   answers the number.
+7. **A CRC is an error check and not a signature.** It detects
+   accidental corruption. It does nothing at all against a change
+   someone made on purpose.
 
-`step` takes and returns an `Int` and touches no buffer, so a target
-with no heap can hold the table as a constant and use the same
-function. It is the whole algorithm, in the reflected case one line:
+## What is not included
 
-```novo norun:fragment
-fn step(self, state: Int, byte: Int) -> Int
-    let index = (state ^ byte) & 0xff
-    self.table[index] ^ (state >>> 8)
-```
+- **CRC-8 and CRC-64.** The four here are the algorithms a wire format
+  in this ecosystem names. `std.codec.crc8` is a CRC-8.
+- **A custom polynomial.** A caller cannot pass one in, so every
+  algorithm this package computes is one a catalogue entry specifies
+  and a check value pins.
+- **Hardware acceleration.** CRC-32C has a processor instruction on
+  x86-64 and on AArch64, and this package does not reach for it. The
+  cost is the table on every target.
+- **A constant-time comparison.** `verify` is `checksum(src) ==
+  expected` and nothing more, because a CRC is not a signature.
+- **Any input or output.** Every function here is arithmetic over bytes
+  the caller already holds, which is why the layer is `core` and no
+  function declares an effect.
 
-## What it does not do
+## Related packages
 
-No CRC-8, no CRC-64, and no custom polynomial: the four here are the
-ones a wire format in this ecosystem actually names, and an
-under-specified fifth is worse than none. No hardware acceleration —
-`CRC-32C` has a processor instruction on x86-64 and AArch64 and this
-package does not reach for it, so the cost is the table on every
-target.
-
-A CRC is an error check, not a signature. It detects accidental
-corruption and does nothing at all against a change someone made on
-purpose.
+- `std.codec` in the standard library has `crc8`, `crc16_ccitt` and
+  `crc32`. Each is an extern over a host C symbol, so each is one call
+  and already linked on a host. There is no CRC-32C and no
+  CRC-16/MODBUS among them, no streaming form, no range form, and the
+  externs are available under the LLVM backend rather than on every
+  target.
 
 ## Tests
 
@@ -112,6 +158,20 @@ purpose.
 novo test tests/crc_tests.nv
 ```
 
-The published check values for all four algorithms, the empty message,
-a streaming split asserted equal to the one-call answer, and the
-single-flipped-bit sensitivity a CRC exists for.
+The suite asserts the published check value of all four algorithms, the
+result over an empty message, a streaming split and a byte-at-a-time
+walk that both agree with the one-call answer, `update_range` against a
+framed message, that a single flipped bit changes the answer, that
+`verify` answers both ways, that the reflected and non-reflected 16-bit
+algorithms disagree, and that no result leaves its own width.
+
+The check values come from the catalogue of parametrised CRC
+algorithms. Every example in a documentation comment is compiled by
+`novo doc` and run by `novo test`, so a check value that stopped being
+true is a failing test.
+
+## Licence
+
+Apache-2.0. See `LICENSE`.
+
+<!-- docs/writing-a-readme.md is the style guide for this page. -->

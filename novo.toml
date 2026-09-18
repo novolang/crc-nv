@@ -1,6 +1,6 @@
 [package]
 name        = "crc-nv"
-version     = "0.1.4"
+version     = "0.1.5"
 description = "Cyclic redundancy checks, table driven: CRC-16/CCITT-FALSE, CRC-16/MODBUS, CRC-32 and CRC-32C.  Each algorithm is fully specified and asserted against its published check value, and the running state is an Int, so a message can arrive in pieces."
 license     = "Apache-2.0"
 stability   = "experimental"
@@ -11,11 +11,12 @@ repository  = "https://github.com/novolang/crc-nv"
 maintainers = ["novo-lang"]
 main        = "src/main.nv"
 
-# The README is the package's one page, and its own first heading is the
-# package name — which says nothing in a list of this package's pages.
+# The README is the package's one page.  Its own first heading is the
+# package name, which says nothing in a list of this package's pages, so
+# the line below is what a reader sees there instead.
 [docs.pages]
 "README.md" = "Computing and verifying cyclic redundancy checks"
 
 [dependencies]
-# None.  std.bytes supplies the buffer and std.list the table; the
-# shifts and masks are operators.
+# None.  std.bytes supplies the buffer and std.list the table.  The
+# shifts and the masks are operators.
