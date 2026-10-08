@@ -150,9 +150,9 @@ novo build --target=nrf52-qemu tests/embedded_probe.nv
 qemu-system-arm -machine mps2-an386 -nographic -semihosting -kernel embedded_probe.elf
 ```
 
-The registry lists the package at the app and wasm tiers. The
-embedded tier is not listed, because the module also holds the `Crc`
-value's host functions.
+The registry lists the `crc` module at the embedded tier.
+`src/main.nv`, the entry point the manifest names, prints a line, and
+is listed at the host tiers only.
 
 ## What is not included
 
