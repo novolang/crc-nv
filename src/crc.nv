@@ -38,15 +38,20 @@
 // Checksumming costs one table lookup, one exclusive-or and one shift
 // per byte, and it allocates nothing, because the running state is an
 // `Int`.  The table is built once per `Crc` value.  Building one per
-// message would cost more than the message.  `step` is arithmetic on
-// `Int` and needs no heap, so a target without one can carry the table
-// as a constant and call the same function.
+// message would cost more than the message.
+//
+// A `Crc` holds its table as a list and its one-call forms take
+// `Bytes`, so it needs a heap.  A program with none, such as a
+// microcontroller's firmware, has CRC-32C as three functions over an
+// `Int` state, `crc32c_start`, `crc32c_step` and `crc32c_finish`, whose
+// table is code rather than memory.
 
 use std.bytes
 use std.list
 
 // How many entries a byte-wise CRC table has.  There is one per
 // possible input byte.
+@tier(app)
 fn table_size() -> Int
     256
 
@@ -73,6 +78,7 @@ pub struct Crc
     reflected: Bool
 
 // The mask that keeps a value inside `width` bits.
+@tier(app)
 fn width_mask(width: Int) -> Int
     // Both intermediates are named because the shifts bind looser than
     // `-` (SPEC § 6 levels 11 and 12).  The one-line form would read as
@@ -84,6 +90,7 @@ fn width_mask(width: Int) -> Int
 // The table for a reflected algorithm.  Each entry is the remainder of
 // one byte fed least significant bit first.  The polynomial arrives
 // already reversed.
+@tier(app)
 fn reflected_table(poly_reversed: Int) -> [Int]
     var out: [Int] = []
     for byte in 0..table_size()
@@ -99,6 +106,7 @@ fn reflected_table(poly_reversed: Int) -> [Int]
 // The table for a non-reflected algorithm.  Each entry is the remainder
 // of one byte fed most significant bit first, aligned to the top of the
 // width.
+@tier(app)
 fn msb_table(poly: Int, width: Int) -> [Int]
     let top_bit = width - 1
     let byte_shift = width - 8
@@ -133,7 +141,8 @@ fn msb_table(poly: Int, width: Int) -> [Int]
 // println("${crc.crc16_ccitt_false().checksum(bytes.from_str("123456789"))}")
 // // 10673, or 0x29b1, the published check value
 // ```
-pub fn crc16_ccitt_false() -> Crc
+pub @tier(app)
+fn crc16_ccitt_false() -> Crc
     Crc { table: msb_table(0x1021, 16), initial: 0xffff, xor_out: 0,
           width: 16, reflected: false }
 
@@ -151,7 +160,8 @@ pub fn crc16_ccitt_false() -> Crc
 // println("${crc.crc16_modbus().checksum(bytes.from_str("123456789"))}")
 // // 19255, or 0x4b37, the published check value
 // ```
-pub fn crc16_modbus() -> Crc
+pub @tier(app)
+fn crc16_modbus() -> Crc
     Crc { table: reflected_table(0xa001), initial: 0xffff, xor_out: 0,
           width: 16, reflected: true }
 
@@ -172,7 +182,8 @@ pub fn crc16_modbus() -> Crc
 // // 3421780262, or 0xcbf43926, the published check value
 // println("${algo.checksum(bytes.zeros(0))}")   // 0, for an empty message
 // ```
-pub fn crc32() -> Crc
+pub @tier(app)
+fn crc32() -> Crc
     Crc { table: reflected_table(0xedb88320), initial: 0xffffffff,
           xor_out: 0xffffffff, width: 32, reflected: true }
 
@@ -191,9 +202,84 @@ pub fn crc32() -> Crc
 // println("${crc.crc32c().checksum(bytes.from_str("123456789"))}")
 // // 3808858755, or 0xe3069283, the published check value
 // ```
-pub fn crc32c() -> Crc
+pub @tier(app)
+fn crc32c() -> Crc
     Crc { table: reflected_table(0x82f63b78), initial: 0xffffffff,
           xor_out: 0xffffffff, width: 32, reflected: true }
+
+// The CRC-32C register after four zero bits are shifted through a
+// register that holds `i` in its low four bits.  These are the 16
+// entries of the table that the four-bits-at-a-time form reads.  They
+// are a `match` rather than a list, so a device keeps them in its code
+// and builds nothing at start-up.
+@tier(embedded)
+fn crc32c_nibble(i: Int) -> Int
+    match i
+        0  => 0x00000000
+        1  => 0x105ec76f
+        2  => 0x20bd8ede
+        3  => 0x30e349b1
+        4  => 0x417b1dbc
+        5  => 0x5125dad3
+        6  => 0x61c69362
+        7  => 0x7198540d
+        8  => 0x82f63b78
+        9  => 0x92a8fc17
+        10 => 0xa24bb5a6
+        11 => 0xb21572c9
+        12 => 0xc38d26c4
+        13 => 0xd3d3e1ab
+        14 => 0xe330a81a
+        _  => 0xf36e6f75
+
+// Answer the state a CRC-32C message starts from, 0xffffffff.
+//
+// This and the two functions after it are CRC-32C for a program with
+// no heap allocator, such as a microcontroller's firmware.  They hold
+// no table in memory and take one byte at a time, so the bytes can come
+// from flash, from a peripheral or from a fixed-size buffer.  They
+// answer what `crc32c().checksum` answers over the same bytes.
+//
+// ```novo
+// // The published check value: the bytes of "123456789" are 49 to 57.
+// var state = crc.crc32c_start()
+// for i in 0 .. 9
+//     state = crc.crc32c_step(state, 49 + i)
+// println("${crc.crc32c_finish(state)}")   // 3808858755, or 0xe3069283
+// ```
+pub @tier(embedded)
+fn crc32c_start() -> Int
+    0xffffffff
+
+// Fold one byte, the low eight bits of `byte`, into a CRC-32C state,
+// and answer the new state.
+//
+// It reads the 16-entry table twice per byte, four bits at a time,
+// where the bitwise definition takes eight steps.  Every value stays
+// within 32 bits.  The answer is not a check value until `crc32c_finish`
+// applies the final xor.
+//
+// ```novo
+// // One byte, 0x31 or "1", folded into a fresh state.
+// println("${crc.crc32c_finish(crc.crc32c_step(crc.crc32c_start(), 0x31))}")
+// // 2432014819, or 0x90f599e3
+// ```
+pub @tier(embedded)
+fn crc32c_step(state: Int, byte: Int) -> Int
+    let c = state ^ (byte & 0xff)
+    let d = (c >>> 4) ^ crc32c_nibble(c & 0xf)
+    (d >>> 4) ^ crc32c_nibble(d & 0xf)
+
+// Answer the CRC-32C check value a running state has reached.  It
+// applies the final xor, 0xffffffff, once.
+//
+// ```novo
+// // No bytes at all: the initial state and the final xor cancel.
+// println("${crc.crc32c_finish(crc.crc32c_start())}")   // 0
+// ```
+pub @tier(embedded)
+fn crc32c_finish(state: Int) -> Int
+    (state ^ 0xffffffff) & 0xffffffff
 
 impl Crc
     // Answer the state a fresh message starts from.
@@ -203,6 +289,7 @@ impl Crc
     // check value.  What it answers is not itself a check value,
     // because the final xor has not been applied, so nothing should
     // compare against it.
+    @tier(app)
     fn start(self) -> Int
         self.initial
 
@@ -227,6 +314,7 @@ impl Crc
     //     state = algo.step(state, bytes.byte_at(msg, i) ?? 0)
     // println("${algo.finish(state) == algo.checksum(msg)}")   // true
     // ```
+    @tier(app)
     fn step(self, state: Int, byte: Int) -> Int
         if self.reflected
             let index = (state ^ byte) & 0xff
@@ -261,6 +349,7 @@ impl Crc
     // state = algo.update(state, bytes.slice(msg, 4, 9))
     // println("${algo.finish(state)}")   // 3421780262, the whole-message answer
     // ```
+    @tier(app)
     fn update(self, state: Int, src: Bytes) -> Int
         self.update_range(state, src, 0, bytes.len(src))
 
@@ -282,6 +371,7 @@ impl Crc
     // println("${algo.finish(algo.update_range(algo.start(), framed, 1, 9))}")
     // // 3421780262, the check value of the nine bytes between them
     // ```
+    @tier(app)
     fn update_range(self, state: Int, src: Bytes, off: Int, count: Int) -> Int
         var running = state
         for i in off..off + count
@@ -293,6 +383,7 @@ impl Crc
     // It is separate from `update` because the final xor must be
     // applied once, at the end.  Applying it twice undoes it, which is
     // what a `finish` inside the loop would do.
+    @tier(app)
     fn finish(self, state: Int) -> Int
         (state ^ self.xor_out) & width_mask(self.width)
 
@@ -311,6 +402,7 @@ impl Crc
     // // reason to send one.
     // println("${crc.crc32().checksum(bytes.from_str("hemlo"))}")   // 936561841
     // ```
+    @tier(app)
     fn checksum(self, src: Bytes) -> Int
         self.finish(self.update(self.start(), src))
 
@@ -329,5 +421,6 @@ impl Crc
     // println("${algo.verify(bytes.from_str("123456789"), 0xcbf43926)}")   // true
     // println("${algo.verify(bytes.from_str("12345678x"), 0xcbf43926)}")   // false
     // ```
+    @tier(app)
     fn verify(self, src: Bytes, expected: Int) -> Bool
         self.checksum(src) == expected

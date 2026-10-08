@@ -4,6 +4,18 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**; see [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.6 — 2026-10-08
+
+- **CRC-32C for a microcontroller.**  `crc32c_start`, `crc32c_step` and
+  `crc32c_finish` compute CRC-32C over an `Int` state with a 16-entry
+  table written as code, so a program with no heap allocator calls them.
+  `tests/embedded_probe.nv` builds them for `--target=nrf52-qemu` and
+  checks the published check value on the emulated board.
+- **The host functions are declared for the host.**  Every other
+  function carries `@tier(app)`, so a device program that depends on
+  crc-nv is built without them.  Before this release such a program
+  stopped with E4000 in `reflected_table`.  No signature changed.
+
 ## 0.1.5 — 2026-09-18
 
 The documentation and comments in plain prose; no signature changed.

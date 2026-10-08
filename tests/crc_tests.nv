@@ -13,6 +13,7 @@
 // empty message and the single-bit sensitivity.
 
 use std.bytes
+use std.list
 use std.test
 use crc
 
@@ -110,3 +111,29 @@ fn test_every_result_stays_inside_its_width() [io]
 fn test_the_start_state_is_the_algorithms_own() [io]
     test.assert_eq(crc.crc32().start(), 0xffffffff)
     test.assert_eq(crc.crc16_ccitt_false().start(), 0xffff)
+
+@test
+fn test_the_device_crc32c_matches_the_table_form() [io]
+    // `crc32c_start`, `crc32c_step` and `crc32c_finish` hold no table in
+    // memory.  Over every byte value, alone and in one message, they
+    // answer what the `Crc` value answers.
+    let algo = crc.crc32c()
+    var values: [Int] = []
+    var all = crc.crc32c_start()
+    for b in 0..256
+        values = list.push(values, b)
+        let one = crc.crc32c_finish(crc.crc32c_step(crc.crc32c_start(), b))
+        test.assert_eq(one, algo.checksum(bytes.u8(b)))
+        all = crc.crc32c_step(all, b)
+    test.assert_eq(crc.crc32c_finish(all), algo.checksum(bytes.from_byte_list(values)))
+
+@test
+fn test_the_device_crc32c_check_value() [io]
+    // The published check value over "123456789", and 0 over no bytes.
+    let msg = check_input()
+    var state = crc.crc32c_start()
+    for i in 0..bytes.len(msg)
+        state = crc.crc32c_step(state, bytes.byte_at(msg, i) ?? 0)
+    test.assert_eq(crc.crc32c_finish(state), 0xe3069283)
+    test.assert_eq(crc.crc32c_finish(crc.crc32c_start()), 0)
+    test.assert_eq(crc.crc32c_start(), 0xffffffff)

@@ -63,7 +63,7 @@ Build and test with `novo pkg build` and `novo test tests/crc_tests.nv`.
 
 | Module | Contents |
 | --- | --- |
-| `crc` | The `Crc` value, the four constructors that build one, and the calls a caller makes on it: `start`, `step`, `update`, `update_range`, `finish`, `checksum` and `verify`. |
+| `crc` | The `Crc` value, the four constructors that build one, and the calls a caller makes on it: `start`, `step`, `update`, `update_range`, `finish`, `checksum` and `verify`.  CRC-32C for a program with no heap allocator: `crc32c_start`, `crc32c_step` and `crc32c_finish`. |
 
 The API reference is on
 [the package's page](https://novo-lang.org/packages/crc-nv). `novo doc`
@@ -101,8 +101,13 @@ needs no slice cut for them.
 
 **`step` takes one byte.** It takes an `Int` and answers an `Int`, and
 it reads no buffer at all. This is the call a receiver makes when the
-bytes come off a UART as they arrive, and the one a target with no heap
-allocator uses with the table held as a constant.
+bytes come off a UART as they arrive.
+
+**`crc32c_start`, `crc32c_step` and `crc32c_finish` need no heap.**
+They are CRC-32C as three functions over an `Int` state, with the
+table in the code rather than in memory. A microcontroller's firmware
+uses them, one byte at a time, from flash or from a fixed-size buffer.
+They answer what `crc32c().checksum` answers over the same bytes.
 
 ## The rules a user needs
 
@@ -127,6 +132,28 @@ allocator uses with the table held as a constant.
    accidental corruption. It does nothing at all against a change
    someone made on purpose.
 
+## Running on a microcontroller
+
+`crc32c_start`, `crc32c_step` and `crc32c_finish` build for a
+microcontroller with no heap allocator. They read a 16-entry table
+written as code, four bits of a byte at a time, and allocate nothing.
+The `Crc` value holds its 256-entry table as a list, and its one-call
+forms take `Bytes`, so those parts run on a host only. Each of them is
+declared for the host, so a device program that depends on this
+package is built without them.
+
+`tests/embedded_probe.nv` is a device program that computes the
+CRC-32C check value with the three functions:
+
+```
+novo build --target=nrf52-qemu tests/embedded_probe.nv
+qemu-system-arm -machine mps2-an386 -nographic -semihosting -kernel embedded_probe.elf
+```
+
+The registry lists the package at the app and wasm tiers. The
+embedded tier is not listed, because the module also holds the `Crc`
+value's host functions.
+
 ## What is not included
 
 - **CRC-8 and CRC-64.** The four here are the algorithms a wire format
@@ -137,6 +164,8 @@ allocator uses with the table held as a constant.
 - **Hardware acceleration.** CRC-32C has a processor instruction on
   x86-64 and on AArch64, and this package does not reach for it. The
   cost is the table on every target.
+- **The other three algorithms without a heap.** Only CRC-32C has the
+  form a microcontroller's firmware can call.
 - **A constant-time comparison.** `verify` is `checksum(src) ==
   expected` and nothing more, because a CRC is not a signature.
 - **Any input or output.** Every function here is arithmetic over bytes
@@ -160,7 +189,8 @@ novo test tests/crc_tests.nv
 
 The suite asserts the published check value of all four algorithms, the
 result over an empty message, a streaming split and a byte-at-a-time
-walk that both agree with the one-call answer, `update_range` against a
+walk that both agree with the one-call answer, the heap-free CRC-32C
+against the table form over every byte value, `update_range` against a
 framed message, that a single flipped bit changes the answer, that
 `verify` answers both ways, that the reflected and non-reflected 16-bit
 algorithms disagree, and that no result leaves its own width.

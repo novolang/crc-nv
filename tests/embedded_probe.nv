@@ -1,0 +1,51 @@
+// embedded_probe.nv — CRC-32C on a microcontroller, as a program that
+// builds for a Cortex-M and runs on the emulated MPS2 AN386.
+//
+// `scripts/shard_audit.sh`'s `core-embedded` row copies this file and
+// the modules it names into a package of its own and runs
+//
+//   novo build --target=nrf52-qemu src/probe.nv
+//
+// The probe covers `crc32c_start`, `crc32c_step` and `crc32c_finish`,
+// the functions a program with no heap allocator calls.  The `Crc`
+// value and its methods hold a list and take `Bytes`, and are left out.
+//
+// `score` counts the answers that match the published values, and
+// `main` writes PASS on the board's UART when every one does.
+
+use crc
+
+// The CRC-32C of the nine bytes "123456789", 49 to 57 in ASCII, folded
+// in one at a time.
+@tier(embedded)
+fn check_value() -> Int
+    var state = crc.crc32c_start()
+    for i in 0..9
+        state = crc.crc32c_step(state, 49 + i)
+    crc.crc32c_finish(state)
+
+// How many of the probe's three answers match the published values.
+@tier(embedded)
+fn score() -> Int
+    var n = 0
+    // The catalogue's check value, 0xe3069283.
+    if check_value() == 0xe3069283
+        n = n + 1
+    // No bytes: the initial state and the final xor cancel.
+    if crc.crc32c_finish(crc.crc32c_start()) == 0
+        n = n + 1
+    // Only the low eight bits of a byte are folded in.
+    if crc.crc32c_step(crc.crc32c_start(), 0x131) == crc.crc32c_step(crc.crc32c_start(), 0x31)
+        n = n + 1
+    n
+
+@tier(rt)
+fn main() [hw, time]
+    bsp.board.init()
+    // 3 is the number of checks in `score`.
+    if score() == 3
+        hal.uart.write("PASS: crc-embedded\n")
+    else
+        hal.uart.write("FAIL: crc-embedded\n")
+    loop
+        core.rt.sleep_ms(1000)
